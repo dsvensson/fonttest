@@ -11,8 +11,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anyhow = "1.0"
-bymsdfgen-core = { path = "../bymsdfgen/crates/bymsdfgen-core" }
-bymsdfgen-io = { path = "../bymsdfgen/crates/bymsdfgen-io" }
+bymsdfgen-core = { git = "https://github.com/dsvensson/bymsdfgen" }
+bymsdfgen-io = { git = "https://github.com/dsvensson/bymsdfgen" }
 bytemuck = { version = "1.23", features = ["derive"] }
 clap = { version = "4.5", features = ["derive"] }
 glam = "0.30"
