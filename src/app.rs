@@ -51,7 +51,7 @@ impl ApplicationHandler for App {
             }
         };
 
-        match pollster::block_on(Renderer::new(window.clone())) {
+        match pollster::block_on(Renderer::new(window.clone(), &self.args.font)) {
             Ok(renderer) => {
                 window.set_visible(true);
                 window.request_redraw();

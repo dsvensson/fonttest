@@ -3,6 +3,8 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use winit::{dpi::PhysicalSize, window::Window};
 
+use crate::{atlas::CpuAtlas, font::FontSelection, text::Document};
+
 pub struct Renderer {
     _instance: wgpu::Instance,
     surface: wgpu::Surface<'static>,
@@ -11,6 +13,8 @@ pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
     background_pipeline: wgpu::RenderPipeline,
     size: PhysicalSize<u32>,
+    _document: Document,
+    _atlas: CpuAtlas,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -23,11 +27,11 @@ pub enum FrameError {
 }
 
 impl Renderer {
-    pub async fn new(window: Arc<Window>) -> Result<Self> {
+    pub async fn new(window: Arc<Window>, font_spec: &str) -> Result<Self> {
         let size = window.inner_size();
         let instance = wgpu::Instance::default();
         let surface = instance
-            .create_surface(window)
+            .create_surface(window.clone())
             .context("creating the wgpu surface")?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -49,6 +53,30 @@ impl Renderer {
             })
             .await
             .context("requesting a wgpu device")?;
+
+        let font = FontSelection::resolve(font_spec).context("resolving selected font")?;
+        window.set_title(&format!("MSDF Font Explorer — {}", font.resolved_name));
+        let document = Document::build(&font).context("shaping the typography document")?;
+        let atlas = CpuAtlas::build(
+            &font,
+            &document.atlas_glyphs,
+            device.limits().max_texture_dimension_2d,
+        )
+        .context("generating the MSDF glyph atlas")?;
+        log::info!(
+            "loaded {} from {}; shaped {} page and {} HUD glyphs across {} styles on a {:.0}×{:.0} page into a {}×{} atlas ({} unique outlines, {} bytes)",
+            font.resolved_name,
+            font.source,
+            document.glyphs.len(),
+            document.hud_glyphs.len(),
+            document.styles.len(),
+            document.bounds.size().x,
+            document.bounds.size().y,
+            atlas.width,
+            atlas.height,
+            atlas.glyphs.len(),
+            atlas.pixels.len()
+        );
 
         let width = size.width.max(1);
         let height = size.height.max(1);
@@ -97,6 +125,8 @@ impl Renderer {
             config,
             background_pipeline,
             size,
+            _document: document,
+            _atlas: atlas,
         })
     }
 

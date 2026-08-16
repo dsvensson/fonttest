@@ -1,5 +1,8 @@
 mod app;
+mod atlas;
+mod font;
 mod renderer;
+mod text;
 
 use anyhow::{Context, Result};
 use app::App;
