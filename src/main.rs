@@ -1,6 +1,7 @@
 mod app;
 mod atlas;
 mod font;
+mod gpu_text;
 mod renderer;
 mod text;
 

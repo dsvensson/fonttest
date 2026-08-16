@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use winit::{dpi::PhysicalSize, window::Window};
 
-use crate::{atlas::CpuAtlas, font::FontSelection, text::Document};
+use crate::{atlas::CpuAtlas, font::FontSelection, gpu_text::TextRenderer, text::Document};
 
 pub struct Renderer {
     _instance: wgpu::Instance,
@@ -12,9 +12,11 @@ pub struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     background_pipeline: wgpu::RenderPipeline,
+    text_renderer: TextRenderer,
     size: PhysicalSize<u32>,
-    _document: Document,
-    _atlas: CpuAtlas,
+    scale_factor: f64,
+    document: Document,
+    atlas: CpuAtlas,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -116,6 +118,16 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        let scale_factor = window.scale_factor();
+        let text_renderer = TextRenderer::new(
+            &device,
+            &queue,
+            config.format,
+            &document,
+            &atlas,
+            size,
+            scale_factor,
+        );
 
         Ok(Self {
             _instance: instance,
@@ -124,9 +136,11 @@ impl Renderer {
             queue,
             config,
             background_pipeline,
+            text_renderer,
             size,
-            _document: document,
-            _atlas: atlas,
+            scale_factor,
+            document,
+            atlas,
         })
     }
 
@@ -138,6 +152,22 @@ impl Renderer {
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(&self.device, &self.config);
+        self.update_text_view();
+    }
+
+    pub fn set_scale_factor(&mut self, scale_factor: f64) {
+        self.scale_factor = scale_factor;
+        self.update_text_view();
+    }
+
+    fn update_text_view(&mut self) {
+        self.text_renderer.update_initial_view(
+            &self.queue,
+            &self.document,
+            &self.atlas,
+            self.size,
+            self.scale_factor,
+        );
     }
 
     pub fn reconfigure(&mut self) {
@@ -188,6 +218,7 @@ impl Renderer {
             });
             pass.set_pipeline(&self.background_pipeline);
             pass.draw(0..3, 0..1);
+            self.text_renderer.draw(&mut pass);
         }
 
         self.queue.submit(Some(encoder.finish()));

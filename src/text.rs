@@ -23,7 +23,6 @@ impl Rect {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub struct TextStyle {
     pub fill_top: [f32; 4],
     pub fill_bottom: [f32; 4],
@@ -35,7 +34,6 @@ pub struct TextStyle {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct DocumentGlyph {
     pub glyph_id: u16,
     pub origin: DVec2,
@@ -356,7 +354,7 @@ fn curated_styles() -> Vec<TextStyle> {
             outline_color: [0.055, 0.035, 0.19, 0.96],
             shadow_color: [0.04, 0.24, 0.95, 0.55],
             outline_em: 0.024,
-            glow_em: 0.105,
+            glow_em: 0.07,
             shadow_offset_em: [0.035, 0.055],
         },
         TextStyle {

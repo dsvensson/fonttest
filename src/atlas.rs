@@ -15,7 +15,6 @@ const GUARD_PX: u32 = 2;
 const SHELF_GAP: u32 = 2;
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 pub struct AtlasGlyph {
     pub pixel_min: [u32; 2],
     pub pixel_max: [u32; 2],

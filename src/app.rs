@@ -86,6 +86,12 @@ impl ApplicationHandler for App {
                     window.request_redraw();
                 }
             }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.set_scale_factor(scale_factor);
+                    window.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 let Some(renderer) = self.renderer.as_mut() else {
                     return;
