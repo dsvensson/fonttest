@@ -34,7 +34,7 @@ serve the included `index.html`:
 
 ```powershell
 rustup target add wasm32-unknown-unknown
-cargo install --locked trunk
+cargo install --locked trunk --version 0.21.14
 trunk serve --release --open
 ```
 
@@ -44,6 +44,16 @@ Google Fonts family through the query string, for example
 fonts are intentionally unavailable inside the browser sandbox. The initial
 page load needs network access to Google Fonts; the browser may cache subsequent
 requests.
+
+### GitHub Pages
+
+The `Deploy WASM to GitHub Pages` workflow builds the Trunk site and deploys its
+HTML, JavaScript, and WASM files whenever `master` is pushed. Before its first
+run, open the repository's **Settings → Pages** and select **GitHub Actions** as
+the publishing source. The workflow derives the repository's Pages base path at
+build time, so project pages such as `https://OWNER.github.io/REPOSITORY/` load
+their generated assets from the correct location. It can also be started
+manually from the Actions tab.
 
 ## Controls
 
