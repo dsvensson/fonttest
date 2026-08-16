@@ -1,11 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use bymsdfgen_core::{
-    Bitmap, DistanceMapping, ErrorCorrectionConfig, ErrorCorrectionMode, FillRule,
-    MsdfGeneratorConfig, Projection, Range, SdfTransformation, Shape, Vector2,
-    coloring::edge_coloring_ink_trap, correction::msdf_error_correction, generate_mtsdf,
-    generator::DistanceCheckMode, raster::distance_sign_correction_multi,
+    Bitmap, DistanceMapping, MsdfGeneratorConfig, Projection, Range, SdfTransformation, Shape,
+    Vector2, coloring::edge_coloring_ink_trap, generate_msdf, resolve_shape_geometry,
 };
 use bymsdfgen_io::{Font, FontCoordinateScaling};
 
@@ -111,6 +109,8 @@ fn generate_glyph(font: &Font<'_>, glyph_id: u16) -> Result<Option<RawGlyph>> {
     if !font.load_glyph(&mut shape, glyph_id, FontCoordinateScaling::EmNormalized) {
         return Ok(None);
     }
+    resolve_shape_geometry(&mut shape)
+        .with_context(|| format!("resolving overlapping contours in glyph {glyph_id}"))?;
     shape.normalize();
     anyhow::ensure!(shape.validate(), "glyph {glyph_id} has an invalid outline");
     edge_coloring_ink_trap(&mut shape, 3.0, glyph_id as u64);
@@ -137,46 +137,27 @@ fn generate_glyph(font: &Font<'_>, glyph_id: u16) -> Result<Option<RawGlyph>> {
         Projection::new(Vector2::splat(ATLAS_SCALE), translate),
         DistanceMapping::from_range(range),
     );
-    let mut bitmap: Bitmap<f32, 4> = Bitmap::new(width as usize, height as usize);
+    let mut bitmap: Bitmap<f32, 3> = Bitmap::new(width as usize, height as usize);
 
-    // Match bymsdfgen's CLI pipeline. The scanline pass repairs locally inverted
-    // MTSDF signs against the font's nonzero fill, after which edge-priority
-    // correction can safely repair interpolation artifacts.
+    // Geometry preprocessing has already removed hidden overlap boundaries, so
+    // the simpler generator path is both sufficient and equivalent to msdfgen's
+    // default full-preprocess pipeline.
     let generator_config = MsdfGeneratorConfig {
-        error_correction: ErrorCorrectionConfig {
-            mode: ErrorCorrectionMode::Disabled,
-            ..Default::default()
-        },
+        overlap_support: false,
         ..Default::default()
     };
-    generate_mtsdf(&mut bitmap, &shape, &transformation, &generator_config);
-    distance_sign_correction_multi(
-        &mut bitmap,
-        &shape,
-        &transformation.projection,
-        0.5,
-        FillRule::NonZero,
-    );
-    let postprocess_config = MsdfGeneratorConfig {
-        error_correction: ErrorCorrectionConfig {
-            mode: ErrorCorrectionMode::EdgePriority,
-            distance_check_mode: DistanceCheckMode::DoNotCheckDistance,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    msdf_error_correction(&mut bitmap, &shape, &transformation, &postprocess_config);
+    generate_msdf(&mut bitmap, &shape, &transformation, &generator_config);
 
     let pixels = bitmap
         .data()
-        .chunks_exact(4)
+        .chunks_exact(3)
         .flat_map(|sample| {
             let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
             [
                 channel(sample[0]),
                 channel(sample[1]),
                 channel(sample[2]),
-                channel(sample[3]),
+                255,
             ]
         })
         .collect();
