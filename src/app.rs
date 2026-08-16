@@ -48,14 +48,18 @@ impl App {
 
     fn finish_renderer(&mut self, event_loop: &ActiveEventLoop, result: Result<Renderer, String>) {
         match result {
-            Ok(renderer) => {
+            Ok(mut renderer) => {
                 let Some(window) = self.window.as_ref() else {
                     return;
                 };
+                let size = window.inner_size();
+                renderer.resize(size);
+                renderer.set_scale_factor(window.scale_factor());
                 window.set_cursor(CursorIcon::Grab);
                 window.set_visible(true);
                 window.request_redraw();
                 self.renderer = Some(renderer);
+                log::info!("renderer ready at {}×{}", size.width, size.height);
             }
             Err(error) => {
                 log::error!("failed to initialize renderer: {error}");

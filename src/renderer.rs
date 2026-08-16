@@ -33,7 +33,6 @@ pub enum FrameError {
 
 impl Renderer {
     pub async fn new(window: Arc<Window>, font_spec: &str) -> Result<Self> {
-        let size = window.inner_size();
         let instance = wgpu::Instance::default();
         let surface = instance
             .create_surface(window.clone())
@@ -88,6 +87,10 @@ impl Renderer {
             atlas.pixels.len()
         );
 
+        // On the web, ResizeObserver initializes winit's canvas size while the
+        // asynchronous adapter/font work above is in flight. Read it only after
+        // that work instead of retaining the initial 0×0 placeholder.
+        let size = window.inner_size();
         let width = size.width.max(1);
         let height = size.height.max(1);
         let config = surface
