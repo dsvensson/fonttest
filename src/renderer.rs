@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use glam::DVec2;
 use winit::{dpi::PhysicalSize, window::Window};
 
-use crate::{atlas::CpuAtlas, font::FontSelection, gpu_text::TextRenderer, text::Document};
+use crate::{
+    atlas::CpuAtlas, camera::Camera, font::FontSelection, gpu_text::TextRenderer, text::Document,
+};
 
 pub struct Renderer {
     _instance: wgpu::Instance,
@@ -14,7 +17,7 @@ pub struct Renderer {
     background_pipeline: wgpu::RenderPipeline,
     text_renderer: TextRenderer,
     size: PhysicalSize<u32>,
-    scale_factor: f64,
+    camera: Camera,
     document: Document,
     atlas: CpuAtlas,
 }
@@ -119,6 +122,7 @@ impl Renderer {
             cache: None,
         });
         let scale_factor = window.scale_factor();
+        let camera = Camera::new(size, scale_factor, document.bounds);
         let text_renderer = TextRenderer::new(
             &device,
             &queue,
@@ -126,7 +130,7 @@ impl Renderer {
             &document,
             &atlas,
             size,
-            scale_factor,
+            &camera,
         );
 
         Ok(Self {
@@ -138,7 +142,7 @@ impl Renderer {
             background_pipeline,
             text_renderer,
             size,
-            scale_factor,
+            camera,
             document,
             atlas,
         })
@@ -146,6 +150,7 @@ impl Renderer {
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         self.size = size;
+        self.camera.resize(size);
         if size.width == 0 || size.height == 0 {
             return;
         }
@@ -156,17 +161,34 @@ impl Renderer {
     }
 
     pub fn set_scale_factor(&mut self, scale_factor: f64) {
-        self.scale_factor = scale_factor;
+        self.camera.set_scale_factor(scale_factor);
+        self.update_text_view();
+    }
+
+    pub fn zoom_at(&mut self, cursor: DVec2, wheel_delta: f64) {
+        if self.camera.zoom_at(cursor, wheel_delta) {
+            self.update_text_view();
+        }
+    }
+
+    pub fn pan_by(&mut self, screen_delta: DVec2) {
+        if self.camera.pan_by(screen_delta) {
+            self.update_text_view();
+        }
+    }
+
+    pub fn reset_view(&mut self) {
+        self.camera.reset();
         self.update_text_view();
     }
 
     fn update_text_view(&mut self) {
-        self.text_renderer.update_initial_view(
+        self.text_renderer.update_view(
             &self.queue,
             &self.document,
             &self.atlas,
             self.size,
-            self.scale_factor,
+            &self.camera,
         );
     }
 

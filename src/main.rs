@@ -1,5 +1,6 @@
 mod app;
 mod atlas;
+mod camera;
 mod font;
 mod gpu_text;
 mod renderer;

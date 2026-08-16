@@ -7,8 +7,11 @@ use winit::dpi::PhysicalSize;
 
 use crate::{
     atlas::{CpuAtlas, FIELD_RANGE_PX},
+    camera::Camera,
     text::{Document, DocumentGlyph, TextStyle},
 };
+
+const SCREEN_CULL_MARGIN: f64 = 96.0;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -67,7 +70,7 @@ impl TextRenderer {
         document: &Document,
         atlas: &CpuAtlas,
         viewport: PhysicalSize<u32>,
-        scale_factor: f64,
+        camera: &Camera,
     ) -> Self {
         let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("MSDF atlas"),
@@ -170,7 +173,7 @@ impl TextRenderer {
             ],
         });
 
-        let instances = build_initial_instances(document, atlas, viewport, scale_factor);
+        let instances = build_instances(document, atlas, viewport, camera);
         let instance_capacity = document.glyphs.len() + document.hud_glyphs.len();
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("glyph instances"),
@@ -216,17 +219,17 @@ impl TextRenderer {
         }
     }
 
-    pub fn update_initial_view(
+    pub fn update_view(
         &mut self,
         queue: &wgpu::Queue,
         document: &Document,
         atlas: &CpuAtlas,
         viewport: PhysicalSize<u32>,
-        scale_factor: f64,
+        camera: &Camera,
     ) {
         let globals = make_globals(viewport, atlas);
         queue.write_buffer(&self._globals_buffer, 0, bytemuck::bytes_of(&globals));
-        let instances = build_initial_instances(document, atlas, viewport, scale_factor);
+        let instances = build_instances(document, atlas, viewport, camera);
         queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instances));
         self.instance_count = instances.len() as u32;
     }
@@ -256,28 +259,23 @@ fn make_globals(viewport: PhysicalSize<u32>, atlas: &CpuAtlas) -> Globals {
     }
 }
 
-fn build_initial_instances(
+fn build_instances(
     document: &Document,
     atlas: &CpuAtlas,
     viewport: PhysicalSize<u32>,
-    scale_factor: f64,
+    camera: &Camera,
 ) -> Vec<GpuGlyphInstance> {
-    let page_scale = scale_factor;
-    let page_offset = DVec2::new(
-        (viewport.width as f64 - document.bounds.size().x * page_scale) * 0.5,
-        34.0 * scale_factor,
-    );
+    let scale_factor = camera.ui_scale();
     let hud_offset = DVec2::new(0.0, viewport.height as f64 / scale_factor - 60.0) * scale_factor;
     let mut instances = Vec::with_capacity(document.glyphs.len() + document.hud_glyphs.len());
-    append_instances(
+    append_page_instances(
         &mut instances,
         &document.glyphs,
         &document.styles,
         atlas,
-        page_scale,
-        page_offset,
+        camera,
     );
-    append_instances(
+    append_screen_instances(
         &mut instances,
         &document.hud_glyphs,
         &document.styles,
@@ -288,7 +286,74 @@ fn build_initial_instances(
     instances
 }
 
-fn append_instances(
+fn append_page_instances(
+    output: &mut Vec<GpuGlyphInstance>,
+    glyphs: &[DocumentGlyph],
+    styles: &[TextStyle],
+    atlas: &CpuAtlas,
+    camera: &Camera,
+) {
+    let scale = camera.screen_scale();
+    let cull_padding = DVec2::splat(SCREEN_CULL_MARGIN / scale);
+    let visible = camera.visible_world_rect();
+    let cull_min = visible.min - cull_padding;
+    let cull_max = visible.max + cull_padding;
+
+    for glyph in glyphs.iter().filter(|glyph| !glyph.whitespace) {
+        let Some(atlas_glyph) = atlas
+            .glyphs
+            .get(&glyph.glyph_id)
+            .or_else(|| atlas.glyphs.get(&0))
+        else {
+            continue;
+        };
+        let style = &styles[glyph.style as usize];
+        let plane_min = DVec2::new(
+            atlas_glyph.plane_min[0] as f64,
+            atlas_glyph.plane_min[1] as f64,
+        ) * glyph.font_size;
+        let plane_max = DVec2::new(
+            atlas_glyph.plane_max[0] as f64,
+            atlas_glyph.plane_max[1] as f64,
+        ) * glyph.font_size;
+        let tile_min = glyph.origin + plane_min;
+        let tile_max = glyph.origin + plane_max;
+        let clipped_min = tile_min.max(cull_min);
+        let clipped_max = tile_max.min(cull_max);
+        if clipped_min.x >= clipped_max.x || clipped_min.y >= clipped_max.y {
+            continue;
+        }
+
+        let tile_size = tile_max - tile_min;
+        let fraction_min = (clipped_min - tile_min) / tile_size;
+        let fraction_max = (clipped_max - tile_min) / tile_size;
+        let pixel_min = DVec2::new(
+            atlas_glyph.pixel_min[0] as f64,
+            atlas_glyph.pixel_min[1] as f64,
+        );
+        let pixel_max = DVec2::new(
+            atlas_glyph.pixel_max[0] as f64,
+            atlas_glyph.pixel_max[1] as f64,
+        );
+        let pixel_size = pixel_max - pixel_min;
+        let uv_min = (pixel_min + fraction_min * pixel_size)
+            / DVec2::new(atlas.width as f64, atlas.height as f64);
+        let uv_max = (pixel_min + fraction_max * pixel_size)
+            / DVec2::new(atlas.width as f64, atlas.height as f64);
+        let screen_min = camera.world_to_screen(clipped_min);
+        let screen_max = camera.world_to_screen(clipped_max);
+        output.push(make_instance(
+            screen_min,
+            screen_max,
+            uv_min,
+            uv_max,
+            style,
+            glyph.font_size * scale,
+        ));
+    }
+}
+
+fn append_screen_instances(
     output: &mut Vec<GpuGlyphInstance>,
     glyphs: &[DocumentGlyph],
     styles: &[TextStyle],
@@ -315,33 +380,57 @@ fn append_instances(
         ) * glyph.font_size;
         let min = (glyph.origin + plane_min) * scale + screen_offset;
         let max = (glyph.origin + plane_max) * scale + screen_offset;
-        let atlas_width = atlas.width as f32;
-        let atlas_height = atlas.height as f32;
-        let effect_scale = (glyph.font_size * scale) as f32;
-        output.push(GpuGlyphInstance {
-            rect: [
-                min.x as f32,
-                min.y as f32,
-                (max.x - min.x) as f32,
-                (max.y - min.y) as f32,
-            ],
-            uv_rect: [
-                atlas_glyph.pixel_min[0] as f32 / atlas_width,
-                atlas_glyph.pixel_min[1] as f32 / atlas_height,
-                atlas_glyph.pixel_max[0] as f32 / atlas_width,
-                atlas_glyph.pixel_max[1] as f32 / atlas_height,
-            ],
-            fill_top: style.fill_top,
-            fill_bottom: style.fill_bottom,
-            outline_color: style.outline_color,
-            shadow_color: style.shadow_color,
-            effect_params: [
-                style.outline_em * effect_scale,
-                style.glow_em * effect_scale,
-                style.shadow_offset_em[0] * effect_scale,
-                style.shadow_offset_em[1] * effect_scale,
-            ],
-        });
+        let uv_min = DVec2::new(
+            atlas_glyph.pixel_min[0] as f64 / atlas.width as f64,
+            atlas_glyph.pixel_min[1] as f64 / atlas.height as f64,
+        );
+        let uv_max = DVec2::new(
+            atlas_glyph.pixel_max[0] as f64 / atlas.width as f64,
+            atlas_glyph.pixel_max[1] as f64 / atlas.height as f64,
+        );
+        output.push(make_instance(
+            min,
+            max,
+            uv_min,
+            uv_max,
+            style,
+            glyph.font_size * scale,
+        ));
+    }
+}
+
+fn make_instance(
+    min: DVec2,
+    max: DVec2,
+    uv_min: DVec2,
+    uv_max: DVec2,
+    style: &TextStyle,
+    effect_scale: f64,
+) -> GpuGlyphInstance {
+    let effect_scale = effect_scale as f32;
+    GpuGlyphInstance {
+        rect: [
+            min.x as f32,
+            min.y as f32,
+            (max.x - min.x) as f32,
+            (max.y - min.y) as f32,
+        ],
+        uv_rect: [
+            uv_min.x as f32,
+            uv_min.y as f32,
+            uv_max.x as f32,
+            uv_max.y as f32,
+        ],
+        fill_top: style.fill_top,
+        fill_bottom: style.fill_bottom,
+        outline_color: style.outline_color,
+        shadow_color: style.shadow_color,
+        effect_params: [
+            style.outline_em * effect_scale,
+            style.glow_em * effect_scale,
+            style.shadow_offset_em[0] * effect_scale,
+            style.shadow_offset_em[1] * effect_scale,
+        ],
     }
 }
 

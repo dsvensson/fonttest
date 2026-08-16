@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
+use glam::DVec2;
 use winit::{
     application::ApplicationHandler,
-    dpi::LogicalSize,
-    event::WindowEvent,
+    dpi::{LogicalSize, PhysicalPosition},
+    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow},
-    window::{Window, WindowId},
+    keyboard::{KeyCode, PhysicalKey},
+    window::{CursorIcon, Window, WindowId},
 };
 
 use crate::{
@@ -17,6 +19,8 @@ pub struct App {
     args: Args,
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
+    cursor_position: Option<PhysicalPosition<f64>>,
+    dragging: bool,
 }
 
 impl App {
@@ -25,6 +29,8 @@ impl App {
             args,
             window: None,
             renderer: None,
+            cursor_position: None,
+            dragging: false,
         }
     }
 }
@@ -53,6 +59,7 @@ impl ApplicationHandler for App {
 
         match pollster::block_on(Renderer::new(window.clone(), &self.args.font)) {
             Ok(renderer) => {
+                window.set_cursor(CursorIcon::Grab);
                 window.set_visible(true);
                 window.request_redraw();
                 self.window = Some(window);
@@ -91,6 +98,61 @@ impl ApplicationHandler for App {
                     renderer.set_scale_factor(scale_factor);
                     window.request_redraw();
                 }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                if self.dragging
+                    && let (Some(previous), Some(renderer)) =
+                        (self.cursor_position, self.renderer.as_mut())
+                {
+                    renderer.pan_by(DVec2::new(position.x - previous.x, position.y - previous.y));
+                    window.request_redraw();
+                }
+                self.cursor_position = Some(position);
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.dragging = state == ElementState::Pressed;
+                window.set_cursor(if self.dragging {
+                    CursorIcon::Grabbing
+                } else {
+                    CursorIcon::Grab
+                });
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let wheel_delta = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y as f64,
+                    MouseScrollDelta::PixelDelta(position) => position.y / 120.0,
+                };
+                let size = window.inner_size();
+                let cursor = self.cursor_position.unwrap_or(PhysicalPosition::new(
+                    size.width as f64 * 0.5,
+                    size.height as f64 * 0.5,
+                ));
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.zoom_at(DVec2::new(cursor.x, cursor.y), wheel_delta);
+                    window.request_redraw();
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == ElementState::Pressed
+                    && !event.repeat
+                    && matches!(
+                        event.physical_key,
+                        PhysicalKey::Code(KeyCode::Digit0 | KeyCode::Numpad0)
+                    ) =>
+            {
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.reset_view();
+                    window.request_redraw();
+                }
+            }
+            WindowEvent::CursorLeft { .. } | WindowEvent::Focused(false) => {
+                self.dragging = false;
+                self.cursor_position = None;
+                window.set_cursor(CursorIcon::Grab);
             }
             WindowEvent::RedrawRequested => {
                 let Some(renderer) = self.renderer.as_mut() else {
