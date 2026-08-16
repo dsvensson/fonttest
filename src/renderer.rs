@@ -1,0 +1,179 @@
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
+use winit::{dpi::PhysicalSize, window::Window};
+
+pub struct Renderer {
+    _instance: wgpu::Instance,
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    background_pipeline: wgpu::RenderPipeline,
+    size: PhysicalSize<u32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FrameError {
+    Timeout,
+    Occluded,
+    Outdated,
+    Lost,
+    Validation,
+}
+
+impl Renderer {
+    pub async fn new(window: Arc<Window>) -> Result<Self> {
+        let size = window.inner_size();
+        let instance = wgpu::Instance::default();
+        let surface = instance
+            .create_surface(window)
+            .context("creating the wgpu surface")?;
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: Some(&surface),
+                apply_limit_buckets: false,
+            })
+            .await
+            .context("requesting a compatible GPU adapter")?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("MSDF device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: wgpu::Trace::Off,
+            })
+            .await
+            .context("requesting a wgpu device")?;
+
+        let width = size.width.max(1);
+        let height = size.height.max(1);
+        let config = surface
+            .get_default_config(&adapter, width, height)
+            .context("the surface has no supported configuration")?;
+        surface.configure(&device, &config);
+
+        let shader = device.create_shader_module(wgpu::include_wgsl!("background.wgsl"));
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("background pipeline layout"),
+            bind_group_layouts: &[],
+            immediate_size: 0,
+        });
+        let background_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("background pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        Ok(Self {
+            _instance: instance,
+            surface,
+            device,
+            queue,
+            config,
+            background_pipeline,
+            size,
+        })
+    }
+
+    pub fn resize(&mut self, size: PhysicalSize<u32>) {
+        self.size = size;
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
+        self.config.width = size.width;
+        self.config.height = size.height;
+        self.surface.configure(&self.device, &self.config);
+    }
+
+    pub fn reconfigure(&mut self) {
+        if self.size.width != 0 && self.size.height != 0 {
+            self.surface.configure(&self.device, &self.config);
+        }
+    }
+
+    pub fn render(&mut self) -> Result<(), FrameError> {
+        if self.size.width == 0 || self.size.height == 0 {
+            return Ok(());
+        }
+
+        let (frame, suboptimal) = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(frame) => (frame, false),
+            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => (frame, true),
+            wgpu::CurrentSurfaceTexture::Timeout => return Err(FrameError::Timeout),
+            wgpu::CurrentSurfaceTexture::Occluded => return Err(FrameError::Occluded),
+            wgpu::CurrentSurfaceTexture::Outdated => return Err(FrameError::Outdated),
+            wgpu::CurrentSurfaceTexture::Lost => return Err(FrameError::Lost),
+            wgpu::CurrentSurfaceTexture::Validation => return Err(FrameError::Validation),
+        };
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("frame encoder"),
+            });
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("background pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.background_pipeline);
+            pass.draw(0..3, 0..1);
+        }
+
+        self.queue.submit(Some(encoder.finish()));
+        self.queue.present(frame);
+        if suboptimal {
+            self.reconfigure();
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn background_shader_parses() {
+        naga::front::wgsl::parse_str(include_str!("background.wgsl"))
+            .expect("background shader should be valid WGSL");
+    }
+}
