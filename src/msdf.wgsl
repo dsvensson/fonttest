@@ -75,7 +75,11 @@ fn median3(value: vec3<f32>) -> f32 {
 }
 
 fn signed_distance_pixels(uv: vec2<f32>) -> f32 {
-    let encoded_distance = median3(textureSample(msdf_atlas, msdf_sampler, uv).rgb) - 0.5;
+    let sample = textureSample(msdf_atlas, msdf_sampler, uv);
+    let msdf_distance = median3(sample.rgb) - 0.5;
+    let true_distance = sample.a - 0.5;
+    let signs_disagree = (msdf_distance < 0.0) != (true_distance < 0.0);
+    let encoded_distance = select(msdf_distance, true_distance, signs_disagree);
     let unit_range = vec2<f32>(globals.range_padding.x) / globals.viewport_atlas.zw;
     let screen_texture_size = 1.0 / max(fwidth(uv), vec2<f32>(0.000001));
     let screen_range = max(0.5 * dot(unit_range, screen_texture_size), 1.0);
@@ -109,4 +113,3 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = input.fill_color.rgb * fill_alpha + input.outline_color.rgb * under;
     return vec4<f32>(color, alpha);
 }
-

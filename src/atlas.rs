@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use bymsdfgen_core::{
     Bitmap, DistanceMapping, ErrorCorrectionConfig, ErrorCorrectionMode, FillRule,
     MsdfGeneratorConfig, Projection, Range, SdfTransformation, Shape, Vector2,
-    coloring::edge_coloring_ink_trap, correction::msdf_error_correction, generate_msdf,
+    coloring::edge_coloring_ink_trap, correction::msdf_error_correction, generate_mtsdf,
     generator::DistanceCheckMode, raster::distance_sign_correction_multi,
 };
 use bymsdfgen_io::{Font, FontCoordinateScaling};
@@ -137,10 +137,10 @@ fn generate_glyph(font: &Font<'_>, glyph_id: u16) -> Result<Option<RawGlyph>> {
         Projection::new(Vector2::splat(ATLAS_SCALE), translate),
         DistanceMapping::from_range(range),
     );
-    let mut bitmap: Bitmap<f32, 3> = Bitmap::new(width as usize, height as usize);
+    let mut bitmap: Bitmap<f32, 4> = Bitmap::new(width as usize, height as usize);
 
     // Match bymsdfgen's CLI pipeline. The scanline pass repairs locally inverted
-    // MSDF signs against the font's nonzero fill, after which edge-priority
+    // MTSDF signs against the font's nonzero fill, after which edge-priority
     // correction can safely repair interpolation artifacts.
     let generator_config = MsdfGeneratorConfig {
         error_correction: ErrorCorrectionConfig {
@@ -149,7 +149,7 @@ fn generate_glyph(font: &Font<'_>, glyph_id: u16) -> Result<Option<RawGlyph>> {
         },
         ..Default::default()
     };
-    generate_msdf(&mut bitmap, &shape, &transformation, &generator_config);
+    generate_mtsdf(&mut bitmap, &shape, &transformation, &generator_config);
     distance_sign_correction_multi(
         &mut bitmap,
         &shape,
@@ -169,14 +169,14 @@ fn generate_glyph(font: &Font<'_>, glyph_id: u16) -> Result<Option<RawGlyph>> {
 
     let pixels = bitmap
         .data()
-        .chunks_exact(3)
+        .chunks_exact(4)
         .flat_map(|sample| {
             let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
             [
                 channel(sample[0]),
                 channel(sample[1]),
                 channel(sample[2]),
-                255,
+                channel(sample[3]),
             ]
         })
         .collect();
