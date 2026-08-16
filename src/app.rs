@@ -10,6 +10,9 @@ use winit::{
     window::{CursorIcon, Window, WindowId},
 };
 
+#[cfg(target_arch = "wasm32")]
+use winit::event_loop::EventLoopProxy;
+
 use crate::{
     Args,
     renderer::{FrameError, Renderer},
@@ -21,21 +24,48 @@ pub struct App {
     renderer: Option<Renderer>,
     cursor_position: Option<PhysicalPosition<f64>>,
     dragging: bool,
+    #[cfg(target_arch = "wasm32")]
+    proxy: EventLoopProxy<AppEvent>,
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub(crate) enum AppEvent {
+    RendererReady(Result<Renderer, String>),
 }
 
 impl App {
-    pub fn new(args: Args) -> Self {
+    pub fn new(args: Args, #[cfg(target_arch = "wasm32")] proxy: EventLoopProxy<AppEvent>) -> Self {
         Self {
             args,
             window: None,
             renderer: None,
             cursor_position: None,
             dragging: false,
+            #[cfg(target_arch = "wasm32")]
+            proxy,
+        }
+    }
+
+    fn finish_renderer(&mut self, event_loop: &ActiveEventLoop, result: Result<Renderer, String>) {
+        match result {
+            Ok(renderer) => {
+                let Some(window) = self.window.as_ref() else {
+                    return;
+                };
+                window.set_cursor(CursorIcon::Grab);
+                window.set_visible(true);
+                window.request_redraw();
+                self.renderer = Some(renderer);
+            }
+            Err(error) => {
+                log::error!("failed to initialize renderer: {error}");
+                event_loop.exit();
+            }
         }
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<AppEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -47,6 +77,11 @@ impl ApplicationHandler for App {
             .with_inner_size(LogicalSize::new(1280.0, 800.0))
             .with_min_inner_size(LogicalSize::new(480.0, 320.0))
             .with_visible(false);
+        #[cfg(target_arch = "wasm32")]
+        let attributes = {
+            use winit::platform::web::WindowAttributesExtWebSys;
+            attributes.with_append(true)
+        };
 
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
@@ -56,19 +91,30 @@ impl ApplicationHandler for App {
                 return;
             }
         };
+        self.window = Some(window.clone());
 
-        match pollster::block_on(Renderer::new(window.clone(), &self.args.font)) {
-            Ok(renderer) => {
-                window.set_cursor(CursorIcon::Grab);
-                window.set_visible(true);
-                window.request_redraw();
-                self.window = Some(window);
-                self.renderer = Some(renderer);
-            }
-            Err(error) => {
-                log::error!("failed to initialize renderer: {error:#}");
-                event_loop.exit();
-            }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let result = pollster::block_on(Renderer::new(window, &self.args.font))
+                .map_err(|error| format!("{error:#}"));
+            self.finish_renderer(event_loop, result);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let proxy = self.proxy.clone();
+            let font = self.args.font.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let result = Renderer::new(window, &font)
+                    .await
+                    .map_err(|error| format!("{error:#}"));
+                let _ = proxy.send_event(AppEvent::RendererReady(result));
+            });
+        }
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: AppEvent) {
+        match event {
+            AppEvent::RendererReady(result) => self.finish_renderer(event_loop, result),
         }
     }
 

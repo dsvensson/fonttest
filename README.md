@@ -1,13 +1,15 @@
 # MSDF Font Explorer
 
-A compact Rust sample that shapes a curated Lorem Ipsum page with
+A compact Rust sample that shapes a romanized Klingon adaptation of Lorem Ipsum with
 [HarfRust](https://crates.io/crates/harfrust), generates a multi-channel signed
 distance field atlas with
 [bymsdfgen](https://crates.io/crates/bymsdfgen-core), and renders every glyph in
 custom `wgpu` shaders.
 
-The sample is Windows-first and defaults to Arial, while `--font` accepts either
-an installed family name or a font-file path. Font collections use face zero
+The default face is Playfair Display. On desktop, `--font` accepts an installed
+family, a Google Fonts family, or a font-file path. Installed families win;
+otherwise the app downloads the regular face from Google Fonts and keeps a copy
+in the operating system's application cache. Font collections use face zero
 when selected by path.
 
 ## Run
@@ -17,11 +19,31 @@ Rust 1.95 or newer and a graphics adapter supported by `wgpu` are required.
 ```powershell
 cargo run --release
 cargo run --release -- --font "Segoe UI"
+cargo run --release -- --font "Roboto Slab"
 cargo run --release -- --font "C:\Windows\Fonts\arial.ttf"
 ```
 
-Use `cargo run -- --help` to see the command-line interface. On a system without
-Arial, pass an installed family or a `.ttf`, `.otf`, or `.ttc` file explicitly.
+Use `cargo run -- --help` to see the command-line interface. A Google font needs
+network access only on its first desktop load; later runs use the cached font.
+
+## WebAssembly
+
+The web build uses the browser's WebGPU implementation and fetches its font from
+Google Fonts. Install [Trunk](https://trunkrs.dev/) and the Rust WASM target, then
+serve the included `index.html`:
+
+```powershell
+rustup target add wasm32-unknown-unknown
+cargo install --locked trunk
+trunk serve --release --open
+```
+
+Build a deployable `dist` directory with `trunk build --release`. Select another
+Google Fonts family through the query string, for example
+`http://127.0.0.1:8080/?font=Roboto%20Slab`. Local file paths and installed system
+fonts are intentionally unavailable inside the browser sandbox. The initial
+page load needs network access to Google Fonts; the browser may cache subsequent
+requests.
 
 ## Controls
 
@@ -38,7 +60,8 @@ keeping GPU coordinates stable during deep zooms.
 
 ## Rendering pipeline
 
-- `font.rs` resolves a system family through `fontdb` or loads a path directly.
+- `font.rs` resolves a desktop system family or path, downloads/caches Google
+  fonts, and decodes browser-delivered WOFF2 fonts for the WASM build.
 - `text.rs` shapes every line with HarfRust and performs Unicode-aware wrapping.
 - `atlas.rs` extracts outlines and builds a padded RGBA MSDF atlas with
   `bymsdfgen-core` and `bymsdfgen-io` once at startup.
@@ -59,4 +82,5 @@ cargo fmt --check
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo build --release
+cargo check --target wasm32-unknown-unknown --lib
 ```

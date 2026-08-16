@@ -59,7 +59,12 @@ impl Renderer {
             .await
             .context("requesting a wgpu device")?;
 
+        #[cfg(not(target_arch = "wasm32"))]
         let font = FontSelection::resolve(font_spec).context("resolving selected font")?;
+        #[cfg(target_arch = "wasm32")]
+        let font = FontSelection::resolve(font_spec)
+            .await
+            .context("resolving selected font")?;
         window.set_title(&format!("MSDF Font Explorer — {}", font.resolved_name));
         let document = Document::build(&font).context("shaping the typography document")?;
         let atlas = CpuAtlas::build(
