@@ -6,7 +6,7 @@ distance field atlas with
 [bymsdfgen](https://crates.io/crates/bymsdfgen-core), and renders every glyph in
 custom `wgpu` shaders.
 
-The default face is Playfair Display. On desktop, `--font` accepts an installed
+The default face is Roboto. On desktop, `--font` accepts an installed
 family, a Google Fonts family, or a font-file path. Installed families win;
 otherwise the app downloads the regular face from Google Fonts and keeps a copy
 in the operating system's application cache. Font collections use face zero

@@ -19,17 +19,20 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let top = vec3<f32>(0.028, 0.039, 0.082);
-    let bottom = vec3<f32>(0.006, 0.010, 0.026);
+    let top = vec3<f32>(0.120, 0.180, 0.340);
+    let bottom = vec3<f32>(0.035, 0.065, 0.150);
     var color = mix(top, bottom, smoothstep(0.0, 1.0, input.uv.y));
 
     let glow_delta = input.uv - vec2<f32>(0.28, 0.16);
     let glow = exp(-dot(glow_delta, glow_delta) * 7.0);
-    color += vec3<f32>(0.035, 0.055, 0.13) * glow;
+    color += vec3<f32>(0.045, 0.080, 0.180) * glow;
+
+    let warm_delta = input.uv - vec2<f32>(0.82, 0.78);
+    let warm_glow = exp(-dot(warm_delta, warm_delta) * 11.0);
+    color += vec3<f32>(0.055, 0.025, 0.060) * warm_glow;
 
     let vignette_delta = input.uv - vec2<f32>(0.5);
     let vignette = smoothstep(0.22, 0.78, dot(vignette_delta, vignette_delta));
-    color *= 1.0 - 0.52 * vignette;
+    color *= 1.0 - 0.32 * vignette;
     return vec4<f32>(color, 1.0);
 }
-

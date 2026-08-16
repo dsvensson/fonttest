@@ -3,7 +3,7 @@ use std::sync::Arc;
 use glam::DVec2;
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalSize, PhysicalPosition},
+    dpi::PhysicalPosition,
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow},
     keyboard::{KeyCode, PhysicalKey},
@@ -78,9 +78,11 @@ impl ApplicationHandler<AppEvent> for App {
         event_loop.set_control_flow(ControlFlow::Wait);
         let attributes = Window::default_attributes()
             .with_title(format!("MSDF Font Explorer — {}", self.args.font))
-            .with_inner_size(LogicalSize::new(1280.0, 800.0))
-            .with_min_inner_size(LogicalSize::new(480.0, 320.0))
             .with_visible(false);
+        #[cfg(not(target_arch = "wasm32"))]
+        let attributes = attributes
+            .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 800.0))
+            .with_min_inner_size(winit::dpi::LogicalSize::new(480.0, 320.0));
         #[cfg(target_arch = "wasm32")]
         let attributes = {
             use winit::platform::web::WindowAttributesExtWebSys;

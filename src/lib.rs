@@ -16,7 +16,7 @@ use winit::event_loop::EventLoop;
 #[command(about = "Interactive wgpu MSDF typography sample")]
 pub struct Args {
     /// Installed/Google font family or path to a TTF/OTF/TTC file.
-    #[arg(long, default_value = "Playfair Display")]
+    #[arg(long, default_value = "Roboto")]
     pub font: String,
 }
 
@@ -57,7 +57,7 @@ fn web_args() -> Args {
         .and_then(|search| web_sys::UrlSearchParams::new_with_str(&search).ok())
         .and_then(|parameters| parameters.get("font"))
         .filter(|font| !font.trim().is_empty())
-        .unwrap_or_else(|| "Playfair Display".to_owned());
+        .unwrap_or_else(|| "Roboto".to_owned());
     Args { font }
 }
 
@@ -66,8 +66,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_to_playfair_display() {
+    fn defaults_to_roboto() {
         let args = Args::try_parse_from(["fonttest"]).expect("default arguments should parse");
-        assert_eq!(args.font, "Playfair Display");
+        assert_eq!(args.font, "Roboto");
     }
 }
