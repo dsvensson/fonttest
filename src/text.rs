@@ -10,6 +10,17 @@ use crate::font::FontSelection;
 pub const PAGE_WIDTH: f64 = 1080.0;
 const PAGE_PADDING: f64 = 80.0;
 
+// Lorem Ipsum is corrupted Latin, so this is a romanized Klingon adaptation of
+// the underlying passage's ideas about pleasure, suffering, effort, and choice.
+const KLINGON_LEAD: &str =
+    "bech neHbogh pagh tu'lu', 'ach rut bel'a' SuqmeH vay', vumqu'nIS 'ej bechnIS.";
+const KLINGON_PARAGRAPHS: [&str; 4] = [
+    "bel parbogh pagh tu'lu'; belmo' parlu'be'. 'ach valbe'taHvIS bel tlha'chugh vay', QaghmeyDajmo' bechqu' ghaH. meqmey yajchugh, bel SuqlaH 'ej Sengmey junlaH.",
+    "bech neHbogh pagh tu'lu'; bechmo' neHlu'be'. 'ach rut qaS wanI' Qatlh. bel'a' SuqmeH vay', vumqu'nIS ghaH, Sengmey SIQnIS, 'ej QatlhwI' jeynIS. tagha' QapDI', belna' chav.",
+    "qatlh porghDaj qeqtaH vay'? HoSDaj ghurmoHmeH 'ej laHDaj DubmeH qeq. vay' chavlaHbe'chugh, Qu' Qatlh taghbe'. bechta'mo' HoSghajchoH, 'ej qaDmeyDaj jeyDI' valchoH.",
+    "bel tIvlu'chugh 'ej Sengmey chenmoHbe'chugh belvam, wIvbogh vay' naDHa'laH pagh. bechlu'chugh 'ej bel Suqbe'lu'chugh, bechbe'meH vangbogh vay' naDHa'laH pagh. bel neHbe' SuvwI' val, bech neHbe' je; Qapla' neH.",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
     pub min: DVec2,
@@ -121,12 +132,11 @@ impl Document {
         );
         y += 78.0;
 
-        let lead = "Neque porro quisquam est qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit.";
         y = add_wrapped_block(
             &mut glyphs,
             &shaper,
             units_per_em,
-            lead,
+            KLINGON_LEAD,
             PAGE_PADDING,
             y,
             880.0,
@@ -137,13 +147,7 @@ impl Document {
         );
         y += 46.0;
 
-        let paragraphs = [
-            "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.",
-            "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
-            "Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.",
-            "Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.",
-        ];
-        for paragraph in paragraphs {
+        for paragraph in KLINGON_PARAGRAPHS {
             y = add_wrapped_block(
                 &mut glyphs,
                 &shaper,
@@ -390,6 +394,22 @@ fn curated_styles() -> Vec<TextStyle> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn placeholder_copy_is_romanized_klingon() {
+        let copy = std::iter::once(KLINGON_LEAD)
+            .chain(KLINGON_PARAGRAPHS)
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        assert!(!copy.contains("Lorem ipsum"));
+        assert!(copy.contains("Qapla'"));
+        assert!(
+            KLINGON_PARAGRAPHS
+                .iter()
+                .all(|paragraph| paragraph.contains('\''))
+        );
+    }
 
     #[cfg(target_os = "windows")]
     fn arial_document() -> Document {
