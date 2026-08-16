@@ -64,6 +64,14 @@ impl Renderer {
         let font = FontSelection::resolve(font_spec)
             .await
             .context("resolving selected font")?;
+        log::info!(
+            "font input: name='{}', source={}, face_index={}, decoded_bytes={}, sha256={}",
+            font.resolved_name,
+            font.source,
+            font.face_index,
+            font.data.len(),
+            font.sha256_hex()
+        );
         window.set_title(&format!("MSDF Font Explorer — {}", font.resolved_name));
         let document = Document::build(&font).context("shaping the typography document")?;
         let atlas = CpuAtlas::build(

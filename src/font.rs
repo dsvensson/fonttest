@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail, ensure};
 use directories::ProjectDirs;
 #[cfg(not(target_arch = "wasm32"))]
 use fontdb::{Database, Family, Query, Stretch, Style, Weight};
+use sha2::{Digest, Sha256};
 
 const GOOGLE_FONTS_CSS_BASE: &str = "https://fonts.googleapis.com/css?family=";
 const GOOGLE_FONTS_CDN: &str = "https://fonts.gstatic.com/";
@@ -27,6 +28,10 @@ pub struct FontSelection {
 }
 
 impl FontSelection {
+    pub fn sha256_hex(&self) -> String {
+        format!("{:x}", Sha256::digest(self.data.as_ref()))
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn resolve(spec: &str) -> Result<Self> {
         let spec = spec.trim();
