@@ -181,16 +181,34 @@ impl Renderer {
         self.update_text_view();
     }
 
-    pub fn zoom_at(&mut self, cursor: DVec2, wheel_delta: f64) {
-        if self.camera.zoom_at(cursor, wheel_delta) {
+    pub fn zoom_at(&mut self, cursor: DVec2, wheel_delta: f64) -> bool {
+        self.camera.zoom_at(cursor, wheel_delta)
+    }
+
+    pub fn begin_pan(&mut self) {
+        self.camera.begin_pan();
+    }
+
+    pub fn drag_by(&mut self, screen_delta: DVec2, elapsed_seconds: f64) {
+        if self.camera.drag_by(screen_delta, elapsed_seconds) {
             self.update_text_view();
         }
     }
 
-    pub fn pan_by(&mut self, screen_delta: DVec2) {
-        if self.camera.pan_by(screen_delta) {
+    pub fn end_pan(&mut self, idle_seconds: f64) -> bool {
+        self.camera.end_pan(idle_seconds);
+        self.camera.is_animating()
+    }
+
+    pub fn cancel_pan(&mut self) {
+        self.camera.cancel_pan();
+    }
+
+    pub fn animate(&mut self, elapsed_seconds: f64) -> bool {
+        if self.camera.animate(elapsed_seconds) {
             self.update_text_view();
         }
+        self.camera.is_animating()
     }
 
     pub fn reset_view(&mut self) {

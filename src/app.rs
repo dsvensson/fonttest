@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use glam::DVec2;
 use winit::{
@@ -24,6 +24,8 @@ pub struct App {
     renderer: Option<Renderer>,
     cursor_position: Option<PhysicalPosition<f64>>,
     dragging: bool,
+    last_drag_sample: Option<Instant>,
+    last_animation_frame: Option<Instant>,
     #[cfg(target_arch = "wasm32")]
     proxy: EventLoopProxy<AppEvent>,
 }
@@ -41,6 +43,8 @@ impl App {
             renderer: None,
             cursor_position: None,
             dragging: false,
+            last_drag_sample: None,
+            last_animation_frame: None,
             #[cfg(target_arch = "wasm32")]
             proxy,
         }
@@ -152,12 +156,23 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                let now = Instant::now();
                 if self.dragging
                     && let (Some(previous), Some(renderer)) =
                         (self.cursor_position, self.renderer.as_mut())
                 {
-                    renderer.pan_by(DVec2::new(position.x - previous.x, position.y - previous.y));
+                    let elapsed_seconds = self
+                        .last_drag_sample
+                        .map(|sample| now.saturating_duration_since(sample).as_secs_f64())
+                        .unwrap_or_default();
+                    renderer.drag_by(
+                        DVec2::new(position.x - previous.x, position.y - previous.y),
+                        elapsed_seconds,
+                    );
                     window.request_redraw();
+                }
+                if self.dragging {
+                    self.last_drag_sample = Some(now);
                 }
                 self.cursor_position = Some(position);
             }
@@ -166,7 +181,32 @@ impl ApplicationHandler<AppEvent> for App {
                 button: MouseButton::Left,
                 ..
             } => {
-                self.dragging = state == ElementState::Pressed;
+                let now = Instant::now();
+                match state {
+                    ElementState::Pressed if !self.dragging => {
+                        self.dragging = true;
+                        self.last_drag_sample = Some(now);
+                        self.last_animation_frame = None;
+                        if let Some(renderer) = self.renderer.as_mut() {
+                            renderer.begin_pan();
+                        }
+                    }
+                    ElementState::Released if self.dragging => {
+                        self.dragging = false;
+                        let idle_seconds = self
+                            .last_drag_sample
+                            .take()
+                            .map(|sample| now.saturating_duration_since(sample).as_secs_f64())
+                            .unwrap_or_default();
+                        if let Some(renderer) = self.renderer.as_mut()
+                            && renderer.end_pan(idle_seconds)
+                        {
+                            self.last_animation_frame = Some(now);
+                            window.request_redraw();
+                        }
+                    }
+                    _ => {}
+                }
                 window.set_cursor(if self.dragging {
                     CursorIcon::Grabbing
                 } else {
@@ -183,8 +223,10 @@ impl ApplicationHandler<AppEvent> for App {
                     size.width as f64 * 0.5,
                     size.height as f64 * 0.5,
                 ));
-                if let Some(renderer) = self.renderer.as_mut() {
-                    renderer.zoom_at(DVec2::new(cursor.x, cursor.y), wheel_delta);
+                if let Some(renderer) = self.renderer.as_mut()
+                    && renderer.zoom_at(DVec2::new(cursor.x, cursor.y), wheel_delta)
+                {
+                    self.last_animation_frame.get_or_insert_with(Instant::now);
                     window.request_redraw();
                 }
             }
@@ -198,20 +240,39 @@ impl ApplicationHandler<AppEvent> for App {
             {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.reset_view();
+                    self.last_animation_frame = None;
                     window.request_redraw();
                 }
             }
             WindowEvent::CursorLeft { .. } | WindowEvent::Focused(false) => {
                 self.dragging = false;
+                self.last_drag_sample = None;
                 self.cursor_position = None;
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.cancel_pan();
+                }
                 window.set_cursor(CursorIcon::Grab);
             }
             WindowEvent::RedrawRequested => {
                 let Some(renderer) = self.renderer.as_mut() else {
                     return;
                 };
+                let now = Instant::now();
+                let animating = self
+                    .last_animation_frame
+                    .map(|previous| {
+                        self.last_animation_frame = Some(now);
+                        renderer.animate(now.saturating_duration_since(previous).as_secs_f64())
+                    })
+                    .unwrap_or(false);
                 match renderer.render() {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        if animating {
+                            window.request_redraw();
+                        } else {
+                            self.last_animation_frame = None;
+                        }
+                    }
                     Err(FrameError::Lost | FrameError::Outdated) => {
                         renderer.reconfigure();
                         window.request_redraw();
