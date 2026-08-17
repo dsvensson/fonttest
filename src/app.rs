@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use glam::DVec2;
 use winit::{
@@ -24,8 +24,8 @@ pub struct App {
     renderer: Option<Renderer>,
     cursor_position: Option<PhysicalPosition<f64>>,
     dragging: bool,
-    last_drag_sample: Option<Instant>,
-    last_animation_frame: Option<Instant>,
+    last_drag_sample: Option<f64>,
+    last_animation_frame: Option<f64>,
     #[cfg(target_arch = "wasm32")]
     proxy: EventLoopProxy<AppEvent>,
 }
@@ -156,14 +156,14 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let now = Instant::now();
+                let now = monotonic_seconds();
                 if self.dragging
                     && let (Some(previous), Some(renderer)) =
                         (self.cursor_position, self.renderer.as_mut())
                 {
                     let elapsed_seconds = self
                         .last_drag_sample
-                        .map(|sample| now.saturating_duration_since(sample).as_secs_f64())
+                        .map(|sample| (now - sample).max(0.0))
                         .unwrap_or_default();
                     renderer.drag_by(
                         DVec2::new(position.x - previous.x, position.y - previous.y),
@@ -181,7 +181,7 @@ impl ApplicationHandler<AppEvent> for App {
                 button: MouseButton::Left,
                 ..
             } => {
-                let now = Instant::now();
+                let now = monotonic_seconds();
                 match state {
                     ElementState::Pressed if !self.dragging => {
                         self.dragging = true;
@@ -196,7 +196,7 @@ impl ApplicationHandler<AppEvent> for App {
                         let idle_seconds = self
                             .last_drag_sample
                             .take()
-                            .map(|sample| now.saturating_duration_since(sample).as_secs_f64())
+                            .map(|sample| (now - sample).max(0.0))
                             .unwrap_or_default();
                         if let Some(renderer) = self.renderer.as_mut()
                             && renderer.end_pan(idle_seconds)
@@ -226,7 +226,8 @@ impl ApplicationHandler<AppEvent> for App {
                 if let Some(renderer) = self.renderer.as_mut()
                     && renderer.zoom_at(DVec2::new(cursor.x, cursor.y), wheel_delta)
                 {
-                    self.last_animation_frame.get_or_insert_with(Instant::now);
+                    self.last_animation_frame
+                        .get_or_insert_with(monotonic_seconds);
                     window.request_redraw();
                 }
             }
@@ -257,12 +258,12 @@ impl ApplicationHandler<AppEvent> for App {
                 let Some(renderer) = self.renderer.as_mut() else {
                     return;
                 };
-                let now = Instant::now();
+                let now = monotonic_seconds();
                 let animating = self
                     .last_animation_frame
                     .map(|previous| {
                         self.last_animation_frame = Some(now);
-                        renderer.animate(now.saturating_duration_since(previous).as_secs_f64())
+                        renderer.animate((now - previous).max(0.0))
                     })
                     .unwrap_or(false);
                 match renderer.render() {
@@ -291,4 +292,20 @@ impl ApplicationHandler<AppEvent> for App {
             _ => {}
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn monotonic_seconds() -> f64 {
+    use std::{sync::OnceLock, time::Instant};
+
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed().as_secs_f64()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn monotonic_seconds() -> f64 {
+    web_sys::window()
+        .and_then(|window| window.performance())
+        .map(|performance| performance.now() * 0.001)
+        .unwrap_or_default()
 }
